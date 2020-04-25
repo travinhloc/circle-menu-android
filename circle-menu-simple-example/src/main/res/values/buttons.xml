@@ -14,4 +14,14 @@
         <item>@android:color/holo_purple</item>
         <item>@android:color/holo_orange_light</item>
     </array>
+
+    <array name="labels">
+        <item>@string/showroom</item>
+        <item>@string/internet</item>
+        <item>@string/phone_ups</item>
+        <item>@string/data_mining</item>
+        <item>@string/incomplete</item>
+        <item>@string/crm</item>
+    </array>
+
 </resources>

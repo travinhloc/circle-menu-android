@@ -1,3 +1,10 @@
 <resources>
     <string name="app_name">circle-menu-android</string>
+    <string name="showroom">Showroom</string>
+    <string name="internet">Internet</string>
+    <string name="phone_ups">Phone-Ups</string>
+    <string name="data_mining">Data Mining</string>
+    <string name="incomplete">Incomplete</string>
+    <string name="crm">CRM</string>
+
 </resources>

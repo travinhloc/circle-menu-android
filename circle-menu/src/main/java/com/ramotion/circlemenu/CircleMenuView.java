@@ -19,8 +19,9 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.animation.OvershootInterpolator;
 import android.widget.FrameLayout;
-
-import com.google.android.material.floatingactionbutton.FloatingActionButton;
+import android.widget.ImageView;
+import android.widget.RelativeLayout;
+import android.widget.TextView;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -29,40 +30,39 @@ import androidx.annotation.AttrRes;
 import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.core.view.ViewCompat;
+import androidx.annotation.RequiresApi;
+import androidx.core.content.ContextCompat;
 
-
-/**
- * CircleMenuView
- */
 public class CircleMenuView extends FrameLayout {
 
     private static final int DEFAULT_BUTTON_SIZE = 56;
-    private static final float DEFAULT_DISTANCE = DEFAULT_BUTTON_SIZE * 1.5f;
+    private static final float DEFAULT_DISTANCE = DEFAULT_BUTTON_SIZE * 2f;
     private static final float DEFAULT_RING_SCALE_RATIO = 1.3f;
     private static final float DEFAULT_CLOSE_ICON_ALPHA = 0.3f;
 
-    private final List<View> mButtons = new ArrayList<>();
-    private final Rect mButtonRect = new Rect();
+    private final List<RelativeLayout> menuButtons = new ArrayList<>();
+    private final Rect buttonRect = new Rect();
 
-    private FloatingActionButton mMenuButton;
-    private RingEffectView mRingView;
+    private ImageView mMenuButton;
+    private RingEffectView ringView;
 
     private boolean mClosedState = true;
-    private boolean mIsAnimating = false;
+    private boolean isAnimating = false;
 
     private int mIconMenu;
     private int mIconClose;
-    private int mDurationRing;
+    private int durationRing;
     private int mLongClickDurationRing;
     private int mDurationOpen;
     private int mDurationClose;
     private int mDesiredSize;
-    private int mRingRadius;
-
+    private int ringRadius;
     private float mDistance;
+    private List<Menu> menus;
 
     private EventListener mListener;
+
+
 
     /**
      * CircleMenu event listener.
@@ -105,85 +105,34 @@ public class CircleMenuView extends FrameLayout {
          * @param buttonIndex - clicked button zero-based index.
          */
         public void onButtonClickAnimationEnd(@NonNull CircleMenuView view, int buttonIndex) {}
-
-        /**
-         * Invoked on button long click. Invokes {@see onButtonLongClickAnimationStart} and {@see onButtonLongClickAnimationEnd}
-         * if returns true.
-         * @param view current CircleMenuView instance.
-         * @param buttonIndex clicked button zero-based index.
-         * @return  true if the callback consumed the long click, false otherwise.
-         */
-        public boolean onButtonLongClick(@NonNull CircleMenuView view, int buttonIndex) { return false; }
-
-        /**
-         * Invoked on button long click, before animation start.
-         * @param view - current CircleMenuView instance.
-         * @param buttonIndex - clicked button zero-based index.
-         */
-        public void onButtonLongClickAnimationStart(@NonNull CircleMenuView view, int buttonIndex) {}
-
-        /**
-         * Invoked on button long click, after animation end.
-         * @param view - current CircleMenuView instance.
-         * @param buttonIndex - clicked button zero-based index.
-         */
-        public void onButtonLongClickAnimationEnd(@NonNull CircleMenuView view, int buttonIndex) {}
     }
 
     private class OnButtonClickListener implements View.OnClickListener {
+        @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
         @Override
         public void onClick(final View view) {
-            if (mIsAnimating) {
+            if (isAnimating) {
                 return;
             }
-
-            final Animator click = getButtonClickAnimation((FloatingActionButton)view);
-            click.setDuration(mDurationRing);
+            durationRing = 0;
+            final Animator click = getButtonClickAnimation((RelativeLayout)view);
+            click.setDuration(durationRing);
             click.addListener(new AnimatorListenerAdapter() {
                 @Override
                 public void onAnimationStart(Animator animation) {
                     if (mListener != null) {
-                        mListener.onButtonClickAnimationStart(CircleMenuView.this, mButtons.indexOf(view));
+                        mListener.onButtonClickAnimationStart(CircleMenuView.this, menuButtons.indexOf(view));
                     }
                 }
                 @Override
                 public void onAnimationEnd(Animator animation) {
                     mClosedState = true;
                     if (mListener != null) {
-                        mListener.onButtonClickAnimationEnd(CircleMenuView.this, mButtons.indexOf(view));
+                        mListener.onButtonClickAnimationEnd(CircleMenuView.this, menuButtons.indexOf(view));
                     }
                 }
             });
             click.start();
-        }
-    }
-
-    private class OnButtonLongClickListener implements View.OnLongClickListener {
-        @Override
-        public boolean onLongClick(final View view) {
-            if (mListener == null) {
-                return false;
-            }
-
-            final boolean result =  mListener.onButtonLongClick(CircleMenuView.this, mButtons.indexOf(view));
-            if (result && !mIsAnimating) {
-                final Animator click = getButtonClickAnimation((FloatingActionButton)view);
-                click.setDuration(mLongClickDurationRing);
-                click.addListener(new AnimatorListenerAdapter() {
-                    @Override
-                    public void onAnimationStart(Animator animation) {
-                        mListener.onButtonLongClickAnimationStart(CircleMenuView.this, mButtons.indexOf(view));
-                    }
-                    @Override
-                    public void onAnimationEnd(Animator animation) {
-                        mClosedState = true;
-                        mListener.onButtonLongClickAnimationEnd(CircleMenuView.this, mButtons.indexOf(view));
-                    }
-                });
-                click.start();
-            }
-
-            return result;
         }
     }
 
@@ -201,11 +150,13 @@ public class CircleMenuView extends FrameLayout {
         final int menuButtonColor;
         final List<Integer> icons;
         final List<Integer> colors;
+        final List<Integer> labels;
 
         final TypedArray a = context.getTheme().obtainStyledAttributes(attrs, R.styleable.CircleMenuView, 0, 0);
         try {
             final int iconArrayId = a.getResourceId(R.styleable.CircleMenuView_button_icons, 0);
             final int colorArrayId = a.getResourceId(R.styleable.CircleMenuView_button_colors, 0);
+            final CharSequence[] labelsArrayId = a.getTextArray(R.styleable.CircleMenuView_button_labels);
 
             final TypedArray iconsIds = getResources().obtainTypedArray(iconArrayId);
             try {
@@ -214,10 +165,13 @@ public class CircleMenuView extends FrameLayout {
 
                 icons = new ArrayList<>(buttonsCount);
                 colors = new ArrayList<>(buttonsCount);
+                menus = new ArrayList<>();
 
                 for (int i = 0; i < buttonsCount; i++) {
                     icons.add(iconsIds.getResourceId(i, -1));
                     colors.add(colorsIds[i]);
+                    menus.add(new Menu(iconsIds.getResourceId(i, -1), labelsArrayId[i].toString(), i%2));
+
                 }
             } finally {
                 iconsIds.recycle();
@@ -226,7 +180,7 @@ public class CircleMenuView extends FrameLayout {
             mIconMenu = a.getResourceId(R.styleable.CircleMenuView_icon_menu, R.drawable.ic_menu_black_24dp);
             mIconClose = a.getResourceId(R.styleable.CircleMenuView_icon_close, R.drawable.ic_close_black_24dp);
 
-            mDurationRing = a.getInteger(R.styleable.CircleMenuView_duration_ring, getResources().getInteger(android.R.integer.config_mediumAnimTime));
+            durationRing = a.getInteger(R.styleable.CircleMenuView_duration_ring, getResources().getInteger(android.R.integer.config_mediumAnimTime));
             mLongClickDurationRing = a.getInteger(R.styleable.CircleMenuView_long_click_duration_ring, getResources().getInteger(android.R.integer.config_longAnimTime));
             mDurationOpen = a.getInteger(R.styleable.CircleMenuView_duration_open, getResources().getInteger(android.R.integer.config_mediumAnimTime));
             mDurationClose = a.getInteger(R.styleable.CircleMenuView_duration_close, getResources().getInteger(android.R.integer.config_mediumAnimTime));
@@ -245,33 +199,6 @@ public class CircleMenuView extends FrameLayout {
         initButtons(context, icons, colors);
     }
 
-    /**
-     * Constructor for creation CircleMenuView in code, not in xml-layout.
-     * @param context current context, will be used to access resources.
-     * @param icons buttons icons resource ids array. Items must be @DrawableRes.
-     * @param colors buttons colors resource ids array. Items must be @DrawableRes.
-     */
-    public CircleMenuView(@NonNull Context context, @NonNull List<Integer> icons, @NonNull List<Integer> colors) {
-        super(context);
-
-        final float density = context.getResources().getDisplayMetrics().density;
-        final float defaultDistance = DEFAULT_DISTANCE * density;
-
-        mIconMenu = R.drawable.ic_menu_black_24dp;
-        mIconClose = R.drawable.ic_close_black_24dp;
-
-        mDurationRing = getResources().getInteger(android.R.integer.config_mediumAnimTime);
-        mLongClickDurationRing = getResources().getInteger(android.R.integer.config_longAnimTime);
-        mDurationOpen = getResources().getInteger(android.R.integer.config_mediumAnimTime);
-        mDurationClose = getResources().getInteger(android.R.integer.config_mediumAnimTime);
-
-        mDistance = defaultDistance;
-
-        initLayout(context);
-        initMenu(Color.WHITE);
-        initButtons(context, icons, colors);
-    }
-
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec);
@@ -286,16 +213,14 @@ public class CircleMenuView extends FrameLayout {
     protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
         super.onLayout(changed, left, top, right, bottom);
 
-        if (!changed && mIsAnimating) {
+        if (!changed && isAnimating) {
             return;
         }
 
-        mMenuButton.getContentRect(mButtonRect);
+        ringView.setStrokeWidth(buttonRect.width());
+        ringView.setRadius(ringRadius);
 
-        mRingView.setStrokeWidth(mButtonRect.width());
-        mRingView.setRadius(mRingRadius);
-
-        final LayoutParams lp = (LayoutParams) mRingView.getLayoutParams();
+        final LayoutParams lp = (LayoutParams) ringView.getLayoutParams();
         lp.width = right - left;
         lp.height = bottom - top;
     }
@@ -310,10 +235,10 @@ public class CircleMenuView extends FrameLayout {
         final float density = context.getResources().getDisplayMetrics().density;
         final float buttonSize = DEFAULT_BUTTON_SIZE * density;
 
-        mRingRadius = (int) (buttonSize + (mDistance - buttonSize / 2));
-        mDesiredSize = (int) (mRingRadius * 2 * DEFAULT_RING_SCALE_RATIO);
+        ringRadius = (int) (buttonSize + (mDistance - buttonSize / 2));
+        mDesiredSize = (int) (ringRadius * 2 * DEFAULT_RING_SCALE_RATIO);
 
-        mRingView = findViewById(R.id.ring_view);
+        ringView = findViewById(R.id.ring_view);
     }
 
     private void initMenu(int menuButtonColor) {
@@ -348,7 +273,7 @@ public class CircleMenuView extends FrameLayout {
         mMenuButton.setOnClickListener(new OnClickListener() {
             @Override
             public void onClick(View view) {
-                if (mIsAnimating) {
+                if (isAnimating) {
                     return;
                 }
 
@@ -363,28 +288,47 @@ public class CircleMenuView extends FrameLayout {
     private void initButtons(@NonNull Context context, @NonNull List<Integer> icons, @NonNull List<Integer> colors) {
         final int buttonsCount = Math.min(icons.size(), colors.size());
         for (int i = 0; i < buttonsCount; i++) {
-            final FloatingActionButton button = new FloatingActionButton(context);
-            button.setImageResource(icons.get(i));
-            button.setBackgroundTintList(ColorStateList.valueOf(colors.get(i)));
-            button.setClickable(true);
-            button.setOnClickListener(new OnButtonClickListener());
-            button.setOnLongClickListener(new OnButtonLongClickListener());
-            button.setScaleX(0);
-            button.setScaleY(0);
-            button.setLayoutParams(new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT));
+            RelativeLayout  relativeLayout;
+            LayoutInflater inflater1 = (LayoutInflater) getContext().getSystemService(Context.LAYOUT_INFLATER_SERVICE);
+            relativeLayout = (RelativeLayout) inflater1.inflate(R.layout.floating_layout, null);
+            TextView tvLabel = relativeLayout.findViewById(R.id.tv_menu);
+            ImageView ivMenu = relativeLayout.findViewById(R.id.iv_menu);
+            TextView tvBadge = relativeLayout.findViewById(R.id.tv_badge);
+            Menu menu = menus.get(i);
+            tvLabel.setText(menu.title);
+            ivMenu.setImageResource(menu.res);
+            tvBadge.setText(String.valueOf(menu.badge));
+            tvBadge.setVisibility(menu.badge > 0 ? VISIBLE : INVISIBLE);
+            tvBadge.setBackground(ContextCompat.getDrawable(context, R.drawable.bg_badge_blue));
 
-            addView(button);
-            mButtons.add(button);
+            int rect = 210;
+            relativeLayout.setLayoutParams(new LayoutParams(rect, rect));
+            relativeLayout.setScaleX(0);
+            relativeLayout.setScaleY(0);
+            relativeLayout.setOnClickListener(new OnButtonClickListener());
+            addView(relativeLayout);
+            menuButtons.add(relativeLayout);
         }
     }
 
+    public void updateBadge(int[] badges) {
+        for (int i = 0; i < badges.length-1; i++) {
+            int count = badges[i];
+            TextView tvBadge = menuButtons.get(i).findViewById(R.id.tv_badge);
+            tvBadge.setText(String.valueOf(count));
+            tvBadge.setVisibility(count > 0 ? VISIBLE : INVISIBLE);
+            invalidate();
+        }
+
+        open(true);
+    }
     private void offsetAndScaleButtons(float centerX, float centerY, float angleStep, float offset, float scale) {
-        for (int i = 0, cnt = mButtons.size(); i < cnt; i++) {
+        for (int i = 0, cnt = menuButtons.size(); i < cnt; i++) {
             final float angle = angleStep * i - 90;
             final float x = (float) Math.cos(Math.toRadians(angle)) * offset;
             final float y = (float) Math.sin(Math.toRadians(angle)) * offset;
 
-            final View button = mButtons.get(i);
+            final View button = menuButtons.get(i);
             button.setX(centerX + x);
             button.setY(centerY + y);
             button.setScaleX(1.0f * scale);
@@ -392,9 +336,9 @@ public class CircleMenuView extends FrameLayout {
         }
     }
 
-    private Animator getButtonClickAnimation(final @NonNull FloatingActionButton button) {
-        final int buttonNumber = mButtons.indexOf(button) + 1;
-        final float stepAngle = 360f / mButtons.size();
+    private Animator getButtonClickAnimation(final @NonNull RelativeLayout button) {
+        final int buttonNumber = menuButtons.indexOf(button) + 1;
+        final float stepAngle = 360f / menuButtons.size();
         final float rOStartAngle = (270 - stepAngle + stepAngle * buttonNumber);
         final float rStartAngle = rOStartAngle > 360 ? rOStartAngle % 360 : rOStartAngle;
 
@@ -415,20 +359,18 @@ public class CircleMenuView extends FrameLayout {
             }
         });
 
-        final float elevation = mMenuButton.getCompatElevation();
-
-        mRingView.setVisibility(View.INVISIBLE);
-        mRingView.setStartAngle(rStartAngle);
+        ringView.setVisibility(View.INVISIBLE);
+        ringView.setStartAngle(rStartAngle);
 
         final ColorStateList csl = button.getBackgroundTintList();
         if (csl != null) {
-            mRingView.setStrokeColor(csl.getDefaultColor());
+            ringView.setStrokeColor(csl.getDefaultColor());
         }
 
-        final ObjectAnimator ring = ObjectAnimator.ofFloat(mRingView, "angle", 360);
-        final ObjectAnimator scaleX = ObjectAnimator.ofFloat(mRingView, "scaleX", 1f, DEFAULT_RING_SCALE_RATIO);
-        final ObjectAnimator scaleY = ObjectAnimator.ofFloat(mRingView, "scaleY", 1f, DEFAULT_RING_SCALE_RATIO);
-        final ObjectAnimator visible = ObjectAnimator.ofFloat(mRingView, "alpha", 1f, 0f);
+        final ObjectAnimator ring = ObjectAnimator.ofFloat(ringView, "angle", 360);
+        final ObjectAnimator scaleX = ObjectAnimator.ofFloat(ringView, "scaleX", 1f, DEFAULT_RING_SCALE_RATIO);
+        final ObjectAnimator scaleY = ObjectAnimator.ofFloat(ringView, "scaleY", 1f, DEFAULT_RING_SCALE_RATIO);
+        final ObjectAnimator visible = ObjectAnimator.ofFloat(ringView, "alpha", 1f, 0f);
 
         final AnimatorSet lastSet = new AnimatorSet();
         lastSet.playTogether(scaleX, scaleY, visible, getCloseMenuAnimation());
@@ -441,37 +383,21 @@ public class CircleMenuView extends FrameLayout {
         result.addListener(new AnimatorListenerAdapter() {
             @Override
             public void onAnimationStart(Animator animation) {
-                mIsAnimating = true;
+                isAnimating = true;
 
-                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
-                    bringChildToFront(mRingView);
-                    bringChildToFront(button);
-                } else {
-                    button.setCompatElevation(elevation + 1);
-                    ViewCompat.setZ(mRingView, elevation + 1);
-
-                    for (View b : mButtons) {
-                        if (b != button) {
-                            ((FloatingActionButton) b).setCompatElevation(0);
-                        }
+                for (View b : menuButtons) {
+                    if (b != button) {
+//                        ((RelativeLayout) b).setCompatElevation(0);
                     }
                 }
 
-                mRingView.setScaleX(1f);
-                mRingView.setScaleY(1f);
-                mRingView.setVisibility(View.VISIBLE);
+                ringView.setScaleX(1f);
+                ringView.setScaleY(1f);
+                ringView.setVisibility(View.VISIBLE);
             }
             @Override
             public void onAnimationEnd(Animator animation) {
-                mIsAnimating = false;
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                    for (View b : mButtons) {
-                        ((FloatingActionButton) b).setCompatElevation(elevation);
-                    }
-
-                    ViewCompat.setZ(mRingView, elevation);
-                }
+                isAnimating = false;
             }
         });
 
@@ -484,6 +410,7 @@ public class CircleMenuView extends FrameLayout {
         final Keyframe kf0 = Keyframe.ofFloat(0f, 0f);
         final Keyframe kf1 = Keyframe.ofFloat(0.5f, 60f);
         final Keyframe kf2 = Keyframe.ofFloat(1f, 0f);
+
         final PropertyValuesHolder pvhRotation = PropertyValuesHolder.ofKeyframe("rotation", kf0, kf1, kf2);
         final ObjectAnimator rotateAnimation = ObjectAnimator.ofPropertyValuesHolder(mMenuButton, pvhRotation);
         rotateAnimation.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
@@ -501,7 +428,7 @@ public class CircleMenuView extends FrameLayout {
         final float centerX = mMenuButton.getX();
         final float centerY = mMenuButton.getY();
 
-        final int buttonsCount = mButtons.size();
+        final int buttonsCount = menuButtons.size();
         final float angleStep = 360f / buttonsCount;
 
         final ValueAnimator buttonsAppear = ValueAnimator.ofFloat(0f, mDistance);
@@ -509,7 +436,7 @@ public class CircleMenuView extends FrameLayout {
         buttonsAppear.addListener(new AnimatorListenerAdapter() {
             @Override
             public void onAnimationStart(Animator animation) {
-                for (View view: mButtons) {
+                for (View view: menuButtons) {
                     view.setVisibility(View.VISIBLE);
                 }
             }
@@ -528,11 +455,11 @@ public class CircleMenuView extends FrameLayout {
         result.addListener(new AnimatorListenerAdapter() {
             @Override
             public void onAnimationStart(Animator animation) {
-                mIsAnimating = true;
+                isAnimating = true;
             }
             @Override
             public void onAnimationEnd(Animator animation) {
-                mIsAnimating = false;
+                isAnimating = false;
             }
         });
 
@@ -548,7 +475,7 @@ public class CircleMenuView extends FrameLayout {
         set1.addListener(new AnimatorListenerAdapter() {
             @Override
             public void onAnimationStart(Animator animation) {
-                for (View view: mButtons) {
+                for (View view: menuButtons) {
                     view.setVisibility(View.INVISIBLE);
                 }
             }
@@ -572,11 +499,11 @@ public class CircleMenuView extends FrameLayout {
         result.addListener(new AnimatorListenerAdapter() {
             @Override
             public void onAnimationStart(Animator animation) {
-                mIsAnimating = true;
+                isAnimating = true;
             }
             @Override
             public void onAnimationEnd(Animator animation) {
-                mIsAnimating = false;
+                isAnimating = false;
             }
         });
         return result;
@@ -637,7 +564,7 @@ public class CircleMenuView extends FrameLayout {
      * @param duration ring animation duration in milliseconds.
      */
     public void setDurationRing(int duration) {
-        mDurationRing = duration;
+        durationRing = duration;
     }
 
     /**
@@ -645,7 +572,7 @@ public class CircleMenuView extends FrameLayout {
      * @return current ring animation duration.
      */
     public int getDurationRing() {
-        return mDurationRing;
+        return durationRing;
     }
 
     /**
@@ -698,7 +625,7 @@ public class CircleMenuView extends FrameLayout {
     }
 
     private void openOrClose(boolean open, boolean animate) {
-        if (mIsAnimating) {
+        if (isAnimating) {
             return;
         }
 
@@ -718,7 +645,7 @@ public class CircleMenuView extends FrameLayout {
             final float centerX = mMenuButton.getX();
             final float centerY = mMenuButton.getY();
 
-            final int buttonsCount = mButtons.size();
+            final int buttonsCount = menuButtons.size();
             final float angleStep = 360f / buttonsCount;
 
             final float offset = open ? mDistance : 0f;
@@ -728,7 +655,7 @@ public class CircleMenuView extends FrameLayout {
             mMenuButton.setAlpha(open ? DEFAULT_CLOSE_ICON_ALPHA : 1f);
 
             final int visibility = open ? View.VISIBLE : View.INVISIBLE;
-            for (View view: mButtons) {
+            for (View view: menuButtons) {
                 view.setVisibility(visibility);
             }
 
